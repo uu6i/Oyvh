@@ -1,3 +1,4 @@
+
 name: Build VAMPS MUSIC APK
 
 on:
@@ -32,25 +33,61 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Set up Gradle 8.13
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
-      - name: Verify project files
+      - name: Locate Android project
+        id: project
+        shell: bash
         run: |
-          test -f settings.gradle.kts
-          test -f build.gradle.kts
-          test -f app/build.gradle.kts
-          test -f app/src/main/AndroidManifest.xml
+          set -euo pipefail
+
+          PROJECT_FILE="$(find . -type f -name settings.gradle.kts \
+            -not -path '*/.gradle/*' \
+            -not -path '*/build/*' | head -n 1)"
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERROR: settings.gradle.kts not found"
+            find . -maxdepth 4 -type f | sort
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$PROJECT_FILE")"
+
+          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+            echo "ERROR: app/build.gradle.kts not found in $PROJECT_DIR"
+            find . -maxdepth 5 -type f | sort
+            exit 1
+          fi
+
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Found Android project: $PROJECT_DIR"
+
+      - name: Show build environment
+        run: |
+          java -version
+          gradle --version
 
       - name: Build debug APK
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+        run: |
+          gradle --no-daemon --stacktrace \
+            -p "${{ steps.project.outputs.dir }}" \
+            :app:assembleDebug
 
       - name: Verify APK
+        shell: bash
         run: |
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          test -s "$APK"
+          set -euo pipefail
+
+          APK="${{ steps.project.outputs.dir }}/app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -s "$APK" ]; then
+            echo "ERROR: APK was not generated"
+            exit 1
+          fi
+
           ls -lh "$APK"
           sha256sum "$APK"
 
@@ -58,6 +95,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: VAMPS-MUSIC-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ steps.project.outputs.dir }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+          
