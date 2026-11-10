@@ -1,0 +1,85 @@
+name: Build VAMPS MUSIC APK
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Works whether the project is at the repo root or inside a sub-folder
+      # (for example VAMPS_MUSIC/ if you committed the unzipped folder as-is).
+      - name: Locate Gradle project
+        shell: bash
+        run: |
+          SETTINGS=$(find . -maxdepth 3 -name settings.gradle.kts -not -path './.git/*' | head -n 1)
+          if [ -z "$SETTINGS" ]; then
+            echo "::error::settings.gradle.kts not found. Commit the project files to the repository."
+            exit 1
+          fi
+          DIR=$(dirname "$SETTINGS")
+          echo "Gradle project directory: $DIR"
+          echo "PROJECT_DIR=$DIR" >> "$GITHUB_ENV"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
+
+      - name: Set up Gradle (cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make wrapper executable
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: chmod +x gradlew
+
+      - name: Build debug and release APKs
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:assembleRelease
+
+      - name: Collect APKs
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" dist/VAMPS-MUSIC-debug.apk
+          cp "$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk" dist/VAMPS-MUSIC-release.apk
+          ls -la dist
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: VAMPS-MUSIC-apk
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: |
+            ${{ env.PROJECT_DIR }}/app/build/reports
+            ${{ env.PROJECT_DIR }}/app/build/outputs/logs
+          if-no-files-found: ignore
