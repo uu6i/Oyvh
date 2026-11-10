@@ -68,7 +68,8 @@ jobs:
             exit 1
           fi
 
-          PROJECT_DIR="$(dirname "$PROJECT_FILE")"
+          # Convert relative path to clean absolute directory path
+          PROJECT_DIR="$(cd "$(dirname "$PROJECT_FILE")" && pwd)"
 
           if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
             echo "ERROR: app/build.gradle.kts not found in $PROJECT_DIR"
